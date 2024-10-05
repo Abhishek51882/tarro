@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 import express, { json } from 'express';
-import { Server } from 'http';
+import http from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import mongoose from 'mongoose';
 import cors from 'cors';
@@ -14,6 +14,8 @@ import commentRoutes from './src/features/comments/comments.routes.js';
 import likeRoutes from './src/features/likes/likes.routes.js';
 import friendRoutes from './src/features/friendship/friendship.routes.js';
 import otpRoutes from './src/features/otp/otp.routes.js';
+import chatRoutes from './src/features/chat/chat.routes.js'; // Import chat routes
+
 import { connectUsingMongoose } from './src/config/mongooseConfig.js';
 
 // Get the directory name of the current module
@@ -22,11 +24,15 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const port = 3000;
-
-const http = new Server(app);
-const io = new SocketIOServer(http);
-
 app.use(cors());
+const httpServer = http.createServer(app);
+const io = new SocketIOServer(httpServer, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST']
+  }
+});
+
 // Middleware to parse JSON bodies
 app.use(json());
 
@@ -40,26 +46,45 @@ app.use('/api/comments', commentRoutes);
 app.use('/api/likes', likeRoutes);
 app.use('/api/friends', friendRoutes);
 app.use('/api/otp', otpRoutes);
+app.use('/api/chat', chatRoutes); // Use chat routes
+
+io.on('connection', (socket) => {
+  console.log('a user connected', socket.id);
+
+  socket.on('joinRoom', ({ roomId }) => {
+    socket.join(roomId);
+    console.log(`User joined room: ${roomId}`);
+  });
+
+  socket.on('sendMessage', ({ roomId, message }) => {
+    // io.to(roomId).emit('receiveMessage', message);
+    io.emit('receiveMessage',message);
+  });
+
+  socket.on('disconnect', () => {
+    console.log('user disconnected');
+  });
+});
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-    if (err instanceof mongoose.Error.ValidationError) {
-        return res.status(400).send(err.message);
-    }
-    if (err instanceof ApplicationError) {
-        return res.status(err.statusCode).send(err.message);
-    }
+  if (err instanceof mongoose.Error.ValidationError) {
+    return res.status(400).send(err.message);
+  }
+  if (err instanceof ApplicationError) {
+    return res.status(err.statusCode).send(err.message);
+  }
 
-    return res.status(500).send("There is some error, come back later");
+  return res.status(500).send("There is some error, come back later");
 });
 
 // 404 handler
 app.use((req, res) => {
-    res.status(404).send("API not found");
+  res.status(404).send("API not found");
 });
 
 // Start the server
-http.listen(port, () => {
-    console.log(`Server is running on http://localhost:${port}`);
-    connectUsingMongoose();
+httpServer.listen(port, () => {
+  console.log(`Server is running on http://localhost:${port}`);
+  connectUsingMongoose();
 });
